@@ -44,13 +44,52 @@ def potential_field_control(lidar, current_pose, goal_pose):
     lidar : placebot object with lidar data
     current_pose : [x, y, theta] nparray, current pose in odom or world frame
     goal_pose : [x, y, theta] nparray, target pose in odom or world frame
-    Notes: As lidar and odom are local only data, goal and gradient will be defined either in
-    robot (x,y) frame (centered on robot, x forward, y on left) or in odom (centered / aligned
-    on initial pose, x forward, y on left)
     """
-    # TODO for TP2
+    K_goal = 1.0
+    K_obs = 5000000
+    d_safe = 100.0
+    d_stop = 20.0
+    d_quad = 100.0
 
-    command = {"forward": 0,
-               "rotation": 0}
+    # Gradient attractif
+    diff = np.array(goal_pose[:2]) - np.array(current_pose[:2])
+    d_goal = np.linalg.norm(diff)
 
-    return command
+    if d_goal < d_stop:
+        return {"forward": 0.0, "rotation": 0.0}
+
+    if d_goal > d_quad:
+        grad_att = (K_goal / d_goal) * diff        # norme = K_goal = 1.0
+    else:
+        grad_att = (K_goal / d_quad) * diff        # quadratique, continuité assurée
+
+    # Gradient répulsif (obstacle le plus proche)
+    laser_dist = lidar.get_sensor_values()
+    ray_angles = lidar.get_ray_angles()
+
+    grad_rep = np.array([0.0, 0.0])
+    min_idx = np.argmin(laser_dist)
+    d_obs = laser_dist[min_idx]
+
+    if d_obs < d_safe:
+        angle_obs = ray_angles[min_idx] + current_pose[2]
+        obs_vec = np.array([np.cos(angle_obs), np.sin(angle_obs)])
+        grad_rep = -K_obs / (d_obs**3) * (1.0/d_obs - 1.0/d_safe) * obs_vec
+
+    # Gradient total
+    grad = grad_att + grad_rep
+    grad_norm = np.linalg.norm(grad)
+
+    if grad_norm < 1e-6:
+        return {"forward": 0.0, "rotation": 0.0}
+
+    # Commande
+    grad_dir = np.arctan2(grad[1], grad[0])
+    angle_err = grad_dir - current_pose[2]
+    angle_err = (angle_err + np.pi) % (2 * np.pi) - np.pi
+
+    forward = np.clip(grad_norm * max(0.0, np.cos(angle_err)), 0.0, 1.0)
+    rotation = np.clip(angle_err / np.pi, -1.0, 1.0)
+
+    return {"forward": forward, "rotation": rotation}
+

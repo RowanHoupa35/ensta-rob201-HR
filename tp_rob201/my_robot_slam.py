@@ -45,12 +45,17 @@ class MyRobotSlam(RobotAbstract):
 
         # storage for pose after localization
         self.corrected_pose = np.array([0, 0, 0])
+        self.goal = self._new_random_goal()
+        self.d_stop = 60.0       # seuil d'arrivée plus large
+        self.goal_timeout = 0    # compteur de steps sur le goal courant
+        self.goal_max_steps = 600  # ~20s avant d'abandonner un goal inaccessible
+                      
 
     def control(self):
         """
         Main control function executed at each time step
         """
-        return self.control_tp1()
+        return self.control_tp2()
 
     def control_tp1(self):
         """
@@ -64,14 +69,38 @@ class MyRobotSlam(RobotAbstract):
         return command
 
     def control_tp2(self):
-        """
-        Control function for TP2
-        Main control function with full SLAM, random exploration and path planning
-        """
         pose = self.odometer_values()
-        goal = [0,0,0]
 
-        # Compute new command speed to perform obstacle avoidance
-        command = potential_field_control(self.lidar(), pose, goal)
+        diff = self.goal[:2] - pose[:2]
+        self.goal_timeout += 1
 
-        return command
+        if np.linalg.norm(diff) < self.d_stop or self.goal_timeout > self.goal_max_steps:
+            if np.linalg.norm(diff) < self.d_stop:
+                print("Goal atteint !")
+            else:
+                print("Timeout, goal abandonné.")
+            self.goal = self._new_random_goal()
+            self.goal_timeout = 0
+            print(f"Nouveau goal : {self.goal[:2]}")
+
+        return potential_field_control(self.lidar(), pose, self.goal)
+    
+    def _new_random_goal(self):
+        """Génère un goal aléatoire en évitant les zones solides connues"""
+        while True:
+            x = np.random.uniform(-700, 80)
+            y = np.random.uniform(-350, 120)
+            # Exclure box 0 (bas-gauche)
+            if x < -558 and -417 < y < -264:
+                continue
+            # Exclure box 1 (obstacle central)
+            if -432 < x < -302 and -226 < y < -126:
+                continue
+            # Exclure box 3 (haut-gauche)
+            if x < -561 and y > 25:
+                continue
+            return np.array([x, y, 0.0])
+
+
+
+
