@@ -50,14 +50,36 @@ class TinySlam:
         best_score = 0
 
         return best_score
-
+    
     def update_map(self, lidar, pose):
         """
         Bayesian map update with new observation
         lidar : placebot object with lidar data
         pose : [x, y, theta] nparray, corrected pose in world coordinates
         """
-        # TODO for TP3
+        laser_dist = lidar.get_sensor_values()
+        ray_angles = lidar.get_ray_angles()
+
+        x_r, y_r, theta_r = pose[0], pose[1], pose[2]
+
+        angles_world = ray_angles + theta_r
+        pts_x = x_r + laser_dist * np.cos(angles_world)
+        pts_y = y_r + laser_dist * np.sin(angles_world)
+
+        for i in range(0, len(laser_dist), 2):
+            self.grid.add_value_along_line(
+                x_r, y_r,
+                x_r + 0.95 * laser_dist[i] * np.cos(angles_world[i]),
+                y_r + 0.95 * laser_dist[i] * np.sin(angles_world[i]),
+                -0.5
+            )
+            
+            val_occ = 4.0 / (1.0 + laser_dist[i] / 100.0) 
+            self.grid.add_map_points(np.array([pts_x[i]]), np.array([pts_y[i]]), val_occ)
+
+        self.grid.occupancy_map = np.clip(self.grid.occupancy_map, -40, 40)
+
+
 
     def compute(self):
         """ Useless function, just for the exercise on using the profiler """

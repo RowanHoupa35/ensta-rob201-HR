@@ -51,11 +51,22 @@ class MyRobotSlam(RobotAbstract):
         self.goal_max_steps = 600  # ~20s avant d'abandonner un goal inaccessible
                       
 
-    def control(self):
-        """
-        Main control function executed at each time step
-        """
+    def control(self): 
+        self.counter += 1 
+        pose = self.odometer_values()
+
+        # Mise à jour carte tous les 5 steps
+        if self.counter % 5 == 0:
+            self.tiny_slam.update_map(self.lidar(), pose) 
+
+        # Affichage tous les 50 steps
+        if self.counter % 50 == 0:
+            self.occupancy_grid.display_cv(pose, goal=self.goal)
+
         return self.control_tp2()
+
+
+
 
     def control_tp1(self):
         """
