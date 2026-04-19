@@ -46,24 +46,35 @@ class MyRobotSlam(RobotAbstract):
         # storage for pose after localization
         self.corrected_pose = np.array([0, 0, 0])
         self.goal = self._new_random_goal()
-        self.d_stop = 60.0       # seuil d'arrivée plus large
-        self.goal_timeout = 0    # compteur de steps sur le goal courant
-        self.goal_max_steps = 600  # ~20s avant d'abandonner un goal inaccessible
+        self.d_stop = 60.0       
+        self.goal_timeout = 0    
+        self.goal_max_steps = 600 
                       
 
-    def control(self): 
-        self.counter += 1 
+    def control(self):
+        self.counter += 1
         pose = self.odometer_values()
 
-        # Mise à jour carte tous les 5 steps
         if self.counter % 5 == 0:
-            self.tiny_slam.update_map(self.lidar(), pose) 
+            if self.counter <= 300:
+                self.corrected_pose = self.tiny_slam.get_corrected_pose(pose)
+                self.tiny_slam.update_map(self.lidar(), self.corrected_pose)
+            else:
+                score = self.tiny_slam.localise(self.lidar(), pose)
+                self.corrected_pose = self.tiny_slam.get_corrected_pose(pose)
+                threshold = max(10, min(50, self.counter // 20))
+                if score > threshold:
+                    self.tiny_slam.update_map(self.lidar(), self.corrected_pose)
+                if self.counter % 50 == 0:
+                    print(f"Step {self.counter} - Score : {score:.1f}")
 
-        # Affichage tous les 50 steps
-        if self.counter % 50 == 0:
-            self.occupancy_grid.display_cv(pose, goal=self.goal)
+        if self.counter % 80 == 0:
+            self.occupancy_grid.display_cv(self.corrected_pose, goal=self.goal)
 
-        return self.control_tp2()
+        if self.counter < 300:
+            return {"forward": 0.0, "rotation": 0.5}
+
+        return self.control_tp2(pose)
 
 
 
@@ -79,9 +90,7 @@ class MyRobotSlam(RobotAbstract):
         command = reactive_obst_avoid(self.lidar())
         return command
 
-    def control_tp2(self):
-        pose = self.odometer_values()
-
+    def control_tp2(self, pose):
         diff = self.goal[:2] - pose[:2]
         self.goal_timeout += 1
 
@@ -111,7 +120,6 @@ class MyRobotSlam(RobotAbstract):
             if x < -561 and y > 25:
                 continue
             return np.array([x, y, 0.0])
-
 
 
 
