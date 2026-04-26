@@ -80,32 +80,24 @@ class TinySlam:
         best_pose_ref = self.odom_pose_ref.copy()
         best_score = self._score(lidar, self.get_corrected_pose(raw_odom_pose, best_pose_ref))
 
-        sigma = np.array([15.0, 15.0, 0.03])
-        N = 100
-        no_improve = 0
-
-        while no_improve < N:
-            offset = np.random.normal(0, sigma)
-            new_pose_ref = best_pose_ref + offset
-            new_score = self._score(lidar, self.get_corrected_pose(raw_odom_pose, new_pose_ref))
-
-            if new_score > best_score:
-                best_score = new_score
-                best_pose_ref = new_pose_ref
-                no_improve = 0
-            else:
-                no_improve += 1
+        for sigma in [np.array([20.0, 20.0, 0.05]), np.array([8.0, 8.0, 0.02])]:
+            no_improve = 0
+            while no_improve < 50:
+                offset = np.random.normal(0, sigma)
+                new_pose_ref = best_pose_ref + offset
+                new_score = self._score(lidar, self.get_corrected_pose(raw_odom_pose, new_pose_ref))
+                if new_score > best_score:
+                    best_score = new_score
+                    best_pose_ref = new_pose_ref
+                    no_improve = 0
+                else:
+                    no_improve += 1
 
         self.odom_pose_ref = best_pose_ref
         return best_score
     
     
     def update_map(self, lidar, pose):
-        """
-        Bayesian map update with new observation
-        lidar : placebot object with lidar data
-        pose : [x, y, theta] nparray, corrected pose in world coordinates
-        """
         laser_dist = lidar.get_sensor_values()
         ray_angles = lidar.get_ray_angles()
 
@@ -115,18 +107,19 @@ class TinySlam:
         pts_x = x_r + laser_dist * np.cos(angles_world)
         pts_y = y_r + laser_dist * np.sin(angles_world)
 
-        for i in range(0, len(laser_dist), 2):
+        for i in range(len(laser_dist)):          # tous les rayons
             self.grid.add_value_along_line(
                 x_r, y_r,
                 x_r + 0.95 * laser_dist[i] * np.cos(angles_world[i]),
                 y_r + 0.95 * laser_dist[i] * np.sin(angles_world[i]),
-                -0.5
+                -1.5                               # espace libre plus marqué
             )
-            
-            val_occ = 4.0 / (1.0 + laser_dist[i] / 100.0) 
+
+            val_occ = 8.0 / (1.0 + laser_dist[i] / 100.0)   # obstacle plus fort
             self.grid.add_map_points(np.array([pts_x[i]]), np.array([pts_y[i]]), val_occ)
 
         self.grid.occupancy_map = np.clip(self.grid.occupancy_map, -40, 40)
+
 
 
     def compute(self):
