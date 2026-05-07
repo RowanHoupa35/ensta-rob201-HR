@@ -41,7 +41,7 @@ class MyRobotSlam(RobotAbstract):
         self.goal_max_steps = 600
 
         # TP5
-        self.EXPLORE_STEPS = 3000
+        self.EXPLORE_STEPS = 2500
         self.path = None          # array (2, N) en coordonnées monde, ou None
         self.path_index = 0
 

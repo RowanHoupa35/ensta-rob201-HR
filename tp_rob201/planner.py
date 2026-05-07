@@ -88,6 +88,62 @@ class Planner:
         print('failed getting to objective')
         return None
 
-    def explore_frontiers(self):
-        goal = np.array([0, 0, 0])
-        return goal
+    def explore_frontiers(self, pose):
+        occ_map = self.grid.occupancy_map
+
+        free_mask    = (occ_map < 0).astype(np.uint8)
+        unknown_mask = (occ_map == 0).astype(np.uint8)
+
+        kernel          = np.ones((3, 3), np.uint8)
+        unknown_dilated = cv2.dilate(unknown_mask, kernel)
+        frontier_mask   = (free_mask & unknown_dilated).astype(np.uint8)
+
+        n_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(frontier_mask)
+
+        if n_labels <= 1:
+            return None
+
+        robot_mx, robot_my = self.grid.conv_world_to_map(pose[0], pose[1])
+
+        areas    = stats[1:, cv2.CC_STAT_AREA].astype(float)
+        area_max = areas.max() if areas.max() > 0 else 1.0
+        dist_max = math.sqrt(self.grid.x_max_map**2 + self.grid.y_max_map**2)
+
+        # Seuil adaptatif : 10% du plus grand amas, minimum 2
+        min_area = max(2, int(area_max * 0.1))
+
+        # Phase : grands amas → score mixte ; petits amas → plus proche
+        large_exists = area_max >= 20
+
+        best_label = -1
+        best_score = -np.inf
+
+        for label in range(1, n_labels):
+            area = stats[label, cv2.CC_STAT_AREA]
+            if area < min_area:
+                continue
+
+            cx_ocv, cy_ocv = centroids[label]
+            map_x, map_y   = int(cy_ocv), int(cx_ocv)
+
+            if occ_map[map_x, map_y] >= 0:
+                continue
+
+            dist = math.sqrt((map_x - robot_mx)**2 + (map_y - robot_my)**2)
+
+            if large_exists:
+                score = (area / area_max) - 0.3 * (dist / dist_max)
+            else:
+                score = -dist   # phase nettoyage : aller au plus proche
+
+            if score > best_score:
+                best_score = score
+                best_label = label
+
+        if best_label == -1:
+            return None
+
+        cx_ocv, cy_ocv = centroids[best_label]
+        map_x, map_y   = int(cy_ocv), int(cx_ocv)
+        wx, wy = self.grid.conv_map_to_world(map_x, map_y)
+        return np.array([wx, wy, 0.0])

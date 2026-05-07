@@ -77,23 +77,43 @@ class TinySlam:
         lidar : placebot object with lidar data
         odom : [x, y, theta] nparray, raw odometry position
         """
-        best_pose_ref = self.odom_pose_ref.copy()
-        best_score = self._score(lidar, self.get_corrected_pose(raw_odom_pose, best_pose_ref))
+        N        = 50    # échantillons par itération
+        elite_k  = 10   # nombre d'élites gardées (20%)
+        n_iter   = 3    # itérations CE
+        sigma_min = np.array([1.0, 1.0, 0.003])  # sigma plancher
 
-        for sigma in [np.array([20.0, 20.0, 0.05]), np.array([8.0, 8.0, 0.02])]:
-            no_improve = 0
-            while no_improve < 50:
-                offset = np.random.normal(0, sigma)
-                new_pose_ref = best_pose_ref + offset
-                new_score = self._score(lidar, self.get_corrected_pose(raw_odom_pose, new_pose_ref))
-                if new_score > best_score:
-                    best_score = new_score
-                    best_pose_ref = new_pose_ref
-                    no_improve = 0
-                else:
-                    no_improve += 1
+        mu    = self.odom_pose_ref.copy().astype(float)
+        sigma = np.array([15.0, 15.0, 0.03])
 
-        self.odom_pose_ref = best_pose_ref
+        best_score = self._score(lidar, self.get_corrected_pose(raw_odom_pose, mu))
+        best_pose  = mu.copy()
+
+
+        for _ in range(n_iter):
+            # 1. Échantillonner N candidats autour de mu
+            noise      = np.random.randn(N, 3) * sigma
+            candidates = mu + noise
+
+            # 2. Évaluer chaque candidat
+            scores = np.zeros(N)
+            for i, candidate in enumerate(candidates):
+                corrected   = self.get_corrected_pose(raw_odom_pose, candidate)
+                scores[i]   = self._score(lidar, corrected)
+
+            # 3. Sélectionner les élites (meilleurs scores)
+            elite_idx = np.argsort(scores)[-elite_k:]
+            elites    = candidates[elite_idx]
+
+            # 4. Mettre à jour mu et sigma depuis les élites
+            mu    = elites.mean(axis=0)
+            sigma = np.maximum(elites.std(axis=0), sigma_min)
+
+            # Garder trace du meilleur global
+            if scores[elite_idx[-1]] > best_score:
+                best_score = scores[elite_idx[-1]]
+                best_pose  = candidates[elite_idx[-1]]
+
+        self.odom_pose_ref = best_pose
         return best_score
     
     
